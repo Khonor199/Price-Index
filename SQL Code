@@ -8,16 +8,16 @@ WITH max_dates AS (
 
 pars AS (
     SELECT 
-      pp.model_id, 
-      LEAST(pp.price, pp.price2) / 1.2 AS least, 
-      pp.source, 
-      pp.url, 
-      pp.region_id,
-      ROW_NUMBER() OVER (PARTITION BY pp.model_id, pp.region_id ORDER BY LEAST(pp.price, pp.price2) / 1.2, pp.source, pp.region_id) AS rn
-  FROM default.price_parsing pp
-  JOIN max_dates md 
-      ON pp.region_id = md.region_id 
-      AND pp.date = md.max_date
+    pp.model_id, 
+    GREATEST(pp.price, pp.price2) / 1.2 AS least, 
+    pp.source, 
+    pp.url, 
+    pp.region_id,
+    ROW_NUMBER() OVER (PARTITION BY pp.model_id, pp.region_id ORDER BY LEAST(pp.price, pp.price2) / 1.2, pp.source, pp.region_id) AS rn
+FROM default.price_parsing pp
+JOIN max_dates md 
+    ON pp.region_id = md.region_id 
+    AND pp.date = md.max_date
 ),
 
 a AS (
@@ -28,7 +28,7 @@ a AS (
 
 b AS (
     SELECT 
-        so.create_ts sub_creates, o.create_ts order_create, oi.model_id, oi.mtr_code, o.client_id, o.be_id be_id, csb.region_id,
+        so.create_ts sub_creates, o.create_ts order_create, oi.model_id, oi.mtr_code, o.client_id, o.be_id be_id, csb.region_id, so.supplier_id supplier_id, so.order_number so_order_number, o.order_number order_number,
         CASE 
             WHEN csb.region_id = '1490490e-49c5-421c-9572-5673ba5d80c8' THEN 'Липецкая обл.'
             WHEN csb.region_id = 'd028ec4f-f6da-4843-ada6-b68b3e0efa3d' THEN 'Тульская обл.'
@@ -48,6 +48,12 @@ b AS (
             WHEN csb.region_id = 'd00e1013-16bd-4c09-b3d5-3cb09fc54bd8' THEN 'Краснодарский край'
             WHEN csb.region_id = '1c727518-c96a-4f34-9ae6-fd510da3be03' THEN 'Мурманская обл.'
             WHEN csb.region_id = '0c5b2444-70a0-4932-980c-b4dc0d3f02b5' THEN 'г. Москва'
+            WHEN csb.region_id = '6d1ebb35-70c6-4129-bd55-da3969658f5d' THEN 'Ленинградская обл.'
+            WHEN csb.region_id = '29251dcf-00a1-4e34-98d4-5c47484a36d4' THEN 'Московская обл.'
+            WHEN csb.region_id = '92b30014-4d52-4e2e-892d-928142b924bf' THEN 'Свердловская обл.'
+            WHEN csb.region_id = '27eb7c10-a234-44da-a59c-8b1f864966de' THEN 'Челябинская обл.'
+            WHEN csb.region_id = '54049357-326d-4b8f-b224-3c6dc25d6dd3' THEN 'Тюменская обл.'
+            WHEN csb.region_id = '0c089b04-099e-4e0e-955a-6bf1ce525f1a' THEN 'Респ.Татарстан'
             ELSE 'Неизвестный регион'
         END AS region_name,
         AVG(oi.unit_delivery_price) as unit_delivery, 
@@ -59,17 +65,22 @@ b AS (
     LEFT JOIN order_service.order o ON oi.order_id = o.id
     LEFT JOIN bi.source__client_service_basis csb ON o.basis_id = CAST(csb.id AS Nullable(Int64))
     WHERE so.system_status NOT IN ('CANCELED', 'DECLINED', 'DRAFT')
-    GROUP BY oi.model_id, oi.mtr_code, o.client_id, so.create_ts, o.create_ts, o.be_id, csb.region_id
+    GROUP BY oi.model_id, oi.mtr_code, o.client_id, so.create_ts, o.create_ts, o.be_id, csb.region_id, so.supplier_id, so.order_number, o.order_number
 )
 
 SELECT DISTINCT
     b.model_id, 
     dictGet('pim_catalog_model_dict', 'name', b.model_id) as model_name,
+    b.supplier_id,
+    dictGet('supplier_service_supplier_dict', 'name', b.supplier_id) as supplier_name,
+    b.order_number,
+    b.so_order_number,
     dictGet('dictionary_service_region_dict', 'name_with_type', b.region_id) AS region_name,
     dictGet('pim_catalog_category_dict', 'name', ps.category_id) as category_name,
     dictGet('pim_catalog_category_dict', 'top_name', ps.category_id) as top_category_name,
     arrayElement(splitByString(',', dictGet('pim_catalog_category_dict', 'category_path', ps.category_id)), 3) AS third_category,
     b.mtr_code as "Код ОЗМ", 
+    client_category,
     b.client_id, 
     dictGet('client_service_business_entities_dict', 'legal_entity', b.be_id) be,
     b.sub_creates,
@@ -105,27 +116,62 @@ SELECT DISTINCT
     END AS "Выброс",
     
     CASE
-        WHEN dictGet('client_service_business_entities_dict', 'legal_entity', b.be_id) = 'АО "БМЗ"' THEN 'ЕХ'
-        WHEN dictGet('client_service_business_entities_dict', 'legal_entity', b.be_id) = 'АО "Ковдорский ГОК"' THEN 'ЕХ'
-        WHEN dictGet('client_service_business_entities_dict', 'legal_entity', b.be_id) = 'АО "НАК "Азот"' THEN 'ЕХ'
-        WHEN dictGet('client_service_business_entities_dict', 'legal_entity', b.be_id) = 'АО "Невинномысский Азот"' THEN 'ЕХ'
-        WHEN dictGet('client_service_business_entities_dict', 'legal_entity', b.be_id) = 'ООО "ЕвроХим-БМУ"' THEN 'ЕХ'
-        WHEN dictGet('client_service_business_entities_dict', 'legal_entity', b.be_id) = 'ООО "СИБ - ДАМЕЛЬ"' THEN 'СУЭК'
-        WHEN dictGet('client_service_business_entities_dict', 'legal_entity', b.be_id) = 'АО "СУЭК-Красноярск"' THEN 'СУЭК'
-        WHEN dictGet('client_service_business_entities_dict', 'legal_entity', b.be_id) = 'АО "СУЭК-Кузбасс"' THEN 'СУЭК'
-        WHEN dictGet('client_service_business_entities_dict', 'legal_entity', b.be_id) = 'АО "УПиР"' THEN 'СУЭК'
-        WHEN dictGet('client_service_business_entities_dict', 'legal_entity', b.be_id) = 'ООО "ЕСК-СУЭК"' THEN 'СУЭК'
-        WHEN dictGet('client_service_business_entities_dict', 'legal_entity', b.be_id) = 'ООО "ЕвроХим - УКК"' THEN 'ЕХ'
-        WHEN dictGet('client_service_business_entities_dict', 'legal_entity', b.be_id) = 'ООО "ЕвроХим-ВолгаКалий"' THEN 'ЕХ'
-        WHEN dictGet('client_service_business_entities_dict', 'legal_entity', b.be_id) = 'ООО "НевРСС"' THEN 'ЕХ'
-        WHEN dictGet('client_service_business_entities_dict', 'legal_entity', b.be_id) = 'ООО "Новомосковский хлор"' THEN 'ЕХ'
+        WHEN dictGet('client_service_business_entities_dict', 'legal_entity', b.be_id) IN (
+            'АО "БМЗ"',
+            'АО "Ковдорский ГОК"',
+            'АО "НАК "Азот"',
+            'АО "Невинномысский Азот"',
+            'ООО "ЕвроХим-БМУ"',
+            'ООО "ЕвроХим - УКК"',
+            'ООО "ЕвроХим-ВолгаКалий"',
+            'ООО "НевРСС"',
+            'ООО "Новомосковский хлор"'
+        ) THEN 'ЕХ'
+    
+        WHEN dictGet('client_service_business_entities_dict', 'legal_entity', b.be_id) IN (
+            'ООО "СИБ - ДАМЕЛЬ"',
+            'АО "СУЭК-Красноярск"',
+            'АО "СУЭК-Кузбасс"',
+            'АО "УПиР"',
+            'ООО "ЕСК-СУЭК"'
+        ) THEN 'СУЭК'
+    
+        -- Добавляем новые юрлица из второго запроса
+        WHEN dictGet('client_service_business_entities_dict', 'legal_entity', b.be_id) IN (
+            'АО "Лучегорский угольный разрез"',
+            'АО "Разрез Тугнуйский"',
+            'АО "Разрез Харанорский"',
+            'АО "Ургалуголь"',
+            'ООО "Восточно-Бейский разрез"',
+            'ООО "Приморскуголь"',
+            'ООО "СУЭК-Хакасия"',
+            'ООО "Тугнуйская ОФ"',
+            'АО "СибЭР"'
+        ) THEN 'СУЭК'
+    
+        WHEN dictGet('client_service_business_entities_dict', 'legal_entity', b.be_id) IN (
+            'АО "ЕвроХим-Северо-Запад"',
+            'ООО "Кингисепп-ремстройсервис"',
+            'ООО "НовомосковскРСС"',
+            'ООО "ПГ "Фосфорит"',
+            'ООО "ПроТехСтрой"',
+            'Филиал АО "НАК "Азот" Новомосковская ГРЭС"'
+        ) THEN 'ЕХ'
+    
         ELSE NULL
     END AS EXorCYEK,
     
     a.url as "Ссылка сайта"
 FROM b
 LEFT JOIN a ON b.model_id = a.model_id AND toString(b.region_id) = a.region_id
-LEFT JOIN (SELECT model_id, category_id FROM default.price_snapshot WHERE date = today() - 1) as ps ON b.model_id = ps.model_id
+LEFT JOIN (SELECT model_id, category_id FROM default.price_snapshot WHERE date = today() - 7) as ps ON b.model_id = ps.model_id
+
+-- Коннект категорий клиента
+LEFT JOIN (
+    select ir.id mtr_code, cr.name client_category, cr.code
+    from bi.source__product_mapping_api_item_reference ir
+    left join bi.source__product_mapping_api_category_reference cr on ir.category_id = cr.id
+) as connect on connect.mtr_code = b.mtr_code
 WHERE a.least > 0
 and dictGet('pim_catalog_category_dict', 'name', ps.category_id) NOT IN ('Без категории')
 [[AND client_id = {{client_id}}]]
