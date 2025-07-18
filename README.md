@@ -41,6 +41,7 @@ The goal is to:
 | `GMV` | Gross Merchandise Value (quantity × unit price) |
 | `Comment` | Classification of price comparison result |
 | `Выброс` | Flag indicating if the price difference is an anomaly |
+| `Client_category` | Classification of our client's category to simplify reporting |
 
 ---
 
@@ -61,3 +62,7 @@ This query helps answer the following questions:
 
 
 ![image](https://github.com/user-attachments/assets/abefc22c-13db-4a3b-bf4c-334c3b5adb89)
+
+
+<img width="1847" height="757" alt="image" src="https://github.com/user-attachments/assets/a6eb2aab-c14a-4ca7-b89a-e5990046896f" />
+
